@@ -1,0 +1,119 @@
+[
+  {
+    "name": "sr_quota_between_bg_ro",
+    "text": "4 dogadjaja sa kvotom izmedju 1.3 i 1.8 ,2 iz bugarske i dva iz rumunije",
+    "expect": {
+      "rows": 4,
+      "country_counts": { "bulgaria": 2, "romania": 2 },
+      "value_min": 1.3,
+      "value_max": 1.8,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "en_total_product_between_5_9",
+    "text": "give me 3 matches with total value between 5 and 9",
+    "expect": {
+      "rows": 3,
+      "total_product_min": 5,
+      "total_product_max": 9,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "en_quota_bg_ro_won_over_1_5",
+    "text": "give me 3 matchs from Bulgaria and 3 from romania where win is over 1.5",
+    "expect": {
+      "rows": 6,
+      "country_counts": { "bulgaria": 3, "romania": 3 },
+      "type": "won",
+      "value_min": 1.5,
+      "value_min_exclusive": true,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "en_timewindow_totalodd_bg_2025_02_25",
+    "text": "I need 2 matches that starts between 12:00 and 17:00 on 25.02.2025 from bulgaria with total odd less then 2",
+    "expect": {
+      "rows": 2,
+      "country_counts": { "bulgaria": 2 },
+      "total_product_max": 2,
+      "total_product_max_exclusive": true,
+      "start_date": "2025-02-25",
+      "start_time_min": "12:00",
+      "start_time_max": "17:00",
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "en_after_time_totalodd_ro_2025_02_28_range_4_6",
+    "text": "I need 4 to 6 matches that starts after 12:00 28.02.2025 from romania with total odd less then 2",
+    "expect": {
+      "rows": 6,
+      "country_counts": { "romania": 6 },
+      "total_product_max": 2,
+      "total_product_max_exclusive": true,
+      "start_date": "2025-02-28",
+      "start_time_after": "12:00",
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_total_gt_ro_two_matches",
+    "text": "daj mi dvije utakmice iz Rumunije sa ukupnom vrijednoscu vecom od 3",
+    "expect": {
+      "rows": 2,
+      "country_counts": { "romania": 2 },
+      "total_product_min": 3,
+      "total_product_min_exclusive": true,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "en_value_between_and_include_match",
+    "text": "give me 4 matches with value between 3 and 5 and one more match Anand vs Radjabov won",
+    "expect": {
+      "rows": 5,
+      "unique_event_names": true,
+      "value_min": 3,
+      "value_max": 5,
+      "value_range_count": 4,
+      "must_include": [
+        { "event_name": "anand vs radjabov", "type": "won" }
+      ]
+    }
+  },
+  {
+    "name": "nonsense_returns_friendly_error",
+    "text": "blabla bla something wrong",
+    "expect": {
+      "http_status": 422,
+      "detail_contains": "I couldn’t understand your query"
+    }
+  },
+  {
+    "name": "bg_two_matches_total_lt_2",
+    "text": "Трябват ми 2 мача от България с общ коефициент по-малък от 2",
+    "expect": {
+      "rows": 2,
+      "country_counts": { "bulgaria": 2 },
+      "total_product_max": 2,
+      "total_product_max_exclusive": true,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_19_not_started_after_submit_total_lte_1200",
+    "text": "Daj mi 19 utakmica sa ukupnom kovtom ne vecom od 1200 i da utakmice nisu startovale nakon submitovanja ovog teksta\n2026-02-20 11:55:00",
+    "expect": {
+      "rows": 19,
+      "total_product_max": 1200,
+      "submitted_at": "2026-02-20 11:55:00",
+      "not_started_after_submit": true,
+      "not_ended_before_submit": true,
+      "unique_event_names": true
+    }
+  }
+]
+
