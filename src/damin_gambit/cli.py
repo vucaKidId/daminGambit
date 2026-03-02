@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .db import DbConfig, query_events, reset_db, seed_db, init_db
+from .db import DbConfig, query_events, reset_db, seed_db, seed_sports_db, init_db
 from .llm import LlmRequiredError, interpret
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
@@ -113,6 +113,19 @@ def seed(
     console.print(f"Inserted {n} example rows into: {cfg.url}")
 
 
+@app.command(name="seed-sports")
+def seed_sports(
+    db: Path = typer.Option(None, "--db", help="Path to SQLite DB file."),
+    replace: bool = typer.Option(
+        False, "--replace/--append", help="Replace all events with only sports data. Default: append."
+    ),
+) -> None:
+    """Insert football (won/draw/lost + goals 0-2 / 3+), basketball and handball (won/draw/lost) sample data."""
+    cfg = _cfg_from_env_or_default(db)
+    n = seed_sports_db(cfg, replace=replace)
+    console.print(f"Inserted {n} sports event rows into: {cfg.url}")
+
+
 @app.command()
 def ask(
     text: str = typer.Argument(..., help="Natural language query text."),
@@ -187,6 +200,18 @@ def ask(
         return
 
     _print_events(events)
+
+
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind."),
+    port: int = typer.Option(8000, "--port", help="Port to listen on."),
+) -> None:
+    """Run the web UI so you can type queries and see results."""
+    import uvicorn
+    from .webapp import app as web_app
+    console.print(f"Opening at [bold]http://{host}:{port}[/] — type in the box to test queries.")
+    uvicorn.run(web_app, host=host, port=port)
 
 
 @app.command()

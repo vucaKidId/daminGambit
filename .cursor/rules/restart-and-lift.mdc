@@ -1,0 +1,21 @@
+---
+description: Always restart app and open browser after code changes—do it yourself every time
+alwaysApply: true
+---
+
+# Always restart app and open browser (do it yourself every time)
+
+**Rule:** After any code change that affects the damin-gambit web app, always:
+
+1. **Restart the web server**  
+   Stop any running uvicorn (e.g. `pkill -f "uvicorn damin_gambit.webapp"` or kill process on port 8000), then start it again:
+   ```bash
+   cd /Users/vukadin/GolandProjects/daminGambit
+   PYTHONPATH=src .venv/bin/python -m uvicorn damin_gambit.webapp:app --host 127.0.0.1 --port 8000
+   ```
+
+2. **Open the app in Cursor**  
+   Open http://127.0.0.1:8000 **inside Cursor**: **Cmd+Shift+P** (Mac) or **Ctrl+Shift+P** (Windows/Linux) → run **"Simple Browser: Show"** → enter `http://127.0.0.1:8000`.  
+   Alternatively run `open http://127.0.0.1:8000` to open in the system browser.
+
+Do this every time after such code changes, without the user having to ask, so they can run queries (e.g. “za danas”, “tiket od 10 parova”) without manually restarting.

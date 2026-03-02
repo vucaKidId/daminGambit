@@ -114,6 +114,100 @@
       "not_ended_before_submit": true,
       "unique_event_names": true
     }
+  },
+  {
+    "name": "en_england_3_matches_total_odd_3_6",
+    "text": "I need 3 matches from Engleand 1 league with total odd betwen 3-6",
+    "expect": {
+      "rows": 3,
+      "country_counts": { "england": 3 },
+      "total_product_min": 3,
+      "total_product_max": 6,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_tiket_10_parova_3_dana_kvote_1_5_1_8",
+    "text": "Sastavi mi tiket od 10 parova za naredna tri dana, a da svaki par pocinje u minimalnom razmaku od dva sata, sa kvotama između 1.5-1.8",
+    "expect": {
+      "rows_min": 0,
+      "rows_max": 10,
+      "value_min": 1.5,
+      "value_max": 1.8,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_tiket_10_parova_kvote_1_3_1_5",
+    "text": "Sastavi mi tiket od 10 parova sa kvotama od 1.3-1.5",
+    "expect": {
+      "rows_min": 9,
+      "rows_max": 10,
+      "value_min": 1.3,
+      "value_max": 1.5,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_kvotu_8_parova_danas_max_5",
+    "text": "Sastavi mi kvotu 8 parovi za danas Max 5 parova",
+    "expect": {
+      "rows_min": 0,
+      "rows_max": 5,
+      "total_product_min": 8.8,
+      "total_product_max": 13.2,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_kvotu_8_parova_danas_max_5_dup",
+    "text": "Sastavi mi kvotu 8 parovi za danas Max 5 parova",
+    "expect": {
+      "rows_min": 0,
+      "rows_max": 5,
+      "total_product_min": 8.8,
+      "total_product_max": 13.2,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_tiket_6_parova_kv_10",
+    "text": "Sastavi mi tiket kombinacija golova i konacnog ishoda od 6 parova kv 10",
+    "expect": {
+      "rows": 6,
+      "total_product_max": 10,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "en_england_league_24_round_0_2_goals",
+    "text": "all matches for england league in 24 round to finish 0-2 goals",
+    "expect": {
+      "rows": 7,
+      "country_counts": { "england": 7 },
+      "type": "goals_0_2",
+      "round_num": 24,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_3_fudbal_3_kosarka_ukupna_kvota_11_pojedinacna_do_3",
+    "text": "3 utakmice iz fudbala i tri iz kosarke sa ukupnom kvotom 11 i pojedinacnom kovtom ne vecom od 3",
+    "expect": {
+      "rows": 6,
+      "sport_counts": { "football": 3, "basketball": 3 },
+      "value_max": 3,
+      "unique_event_names": true
+    }
+  },
+  {
+    "name": "sr_manceter_bajern_barselona_dobijaju",
+    "text": "Manceter City, Bajern Minken I Barselona dobijaju",
+    "expect": {
+      "rows_min": 3,
+      "type": "won",
+      "unique_event_names": true
+    }
   }
 ]
 

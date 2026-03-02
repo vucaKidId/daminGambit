@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 import re
 from typing import Dict, List, Optional
 
@@ -31,6 +31,10 @@ class QuerySpec:
     include_type_: Optional[str] = None
     limit: int = 50
     distinct_matches: bool = False
+    min_hours_between: Optional[float] = None
+    round_num: Optional[int] = None
+    sport_limits: Optional[Dict[str, int]] = None
+    include_teams: Optional[List[str]] = None
     intent: str = "list"
 
 
@@ -98,7 +102,7 @@ def _extract_after_keyword(text: str, keyword: str) -> Optional[str]:
     tail = m.group(1).strip()
     # Stop at next keyword-ish boundary to avoid swallowing dates etc.
     stop = re.split(
-        r"\b(group|country|league|tournament|type|since|after|before|until|between|and|limit)\b",
+        r"\b(group|country|league|tournament|type|since|after|before|until|between|and|limit|with)\b",
         tail,
         maxsplit=1,
         flags=re.I,
@@ -182,12 +186,14 @@ def parse(text: str) -> QuerySpec:
         if m_from:
             group_name = m_from.group("c").strip()
 
-    # Serbian: "iz Rumunije"
+    # Serbian: "iz Rumunije" (skip sport names: "iz fudbala" / "iz kosarke" -> sport_limits)
+    _SR_SPORT_RAW = {"fudbala", "fudbal", "kosarke", "kosarka", "rukometa", "rukomet"}
     if not group_name:
         m_iz = re.search(r"\biz\s+(?P<c>[a-zčćšđž]+)\b", lowered, re.I)
         if m_iz:
             c_raw = (m_iz.group("c") or "").strip().lower()
-            group_name = _SR_COUNTRY_FORMS.get(c_raw, c_raw)
+            if c_raw not in _SR_SPORT_RAW:
+                group_name = _SR_COUNTRY_FORMS.get(c_raw, c_raw)
 
     # Bulgarian: "от България"
     if not group_name:
@@ -206,10 +212,31 @@ def parse(text: str) -> QuerySpec:
         event_name = event_name.strip().lower()
     if group_name:
         group_name = group_name.strip().lower()
+        # Normalize "engleand" / "england 1 league" / "engleand 1 league" -> "england"
+        if group_name in ("engleand", "england 1 league", "engleand 1 league"):
+            group_name = "england"
+        elif group_name.startswith("engleand "):
+            group_name = "england"
+        elif group_name.startswith("england ") and "league" in group_name:
+            group_name = "england"
     if league:
         league = league.strip().lower()
+        # "1 league" / "1" means "one league" (any), not a filter by league name
+        if league in ("1", "1 league"):
+            league = None
+    # "england league" / "for england league" -> England + Premier League (overwrite league so "league in 24 round..." isn't captured)
+    if re.search(r"\bengland\s+league\b", lowered, re.I) or re.search(r"\bfor\s+england\s+league\b", lowered, re.I):
+        group_name = (group_name or "england").strip().lower()
+        if group_name in ("engleand", "england 1 league", "engleand 1 league"):
+            group_name = "england"
+        league = "premier league"
     if type_:
         type_ = type_.strip().lower()
+    # "0-2 goals" / "to finish 0-2 goals" -> goals_0_2; "3+ goals" -> goals_3_plus
+    if re.search(r"\b(?:to\s+finish\s+)?0-2\s+goals\b", lowered, re.I):
+        type_ = "goals_0_2"
+    elif re.search(r"\b(?:to\s+finish\s+)?3\+?\s*goals\b", lowered, re.I):
+        type_ = "goals_3_plus"
 
     # If user gave a single quoted token and no explicit event/group/type, treat it as an event name.
     quoted = [m.group("val") for m in _QUOTED_RE.finditer(raw)]
@@ -293,6 +320,52 @@ def parse(text: str) -> QuerySpec:
         if m_before:
             start_time_to = _parse_dt(m_before.group("d"))
 
+    # Serbian: "za danas" (for today), "za naredna tri dana" (next 3 days)
+    if re.search(r"\bza\s+danas\b", lowered, re.I):
+        today = date.today()
+        if start_time_from is None:
+            start_time_from = datetime.combine(today, datetime.min.time())
+        if start_time_to is None:
+            start_time_to = datetime.combine(today, datetime.max.time().replace(microsecond=0))
+    if re.search(r"\bza\s+naredna\s+(tri|3)\s+dana\b", lowered, re.I) or re.search(r"\bnaredna\s+(tri|3)\s+dana\b", lowered, re.I):
+        today = date.today()
+        if start_time_from is None:
+            start_time_from = datetime.combine(today, datetime.min.time())
+        if start_time_to is None:
+            start_time_to = datetime.combine(today + timedelta(days=3), datetime.max.time().replace(microsecond=0))
+
+    # Serbian: "minimalnom razmaku od dva sata", "svaki par pocinje u minimalnom razmaku od 2 sata"
+    min_hours_between: Optional[float] = None
+    m_razmak = re.search(
+        r"\b(?:svaki\s+par\s+po[cč]inje\s+u\s+)?minimalnom\s+razmaku\s+od\s+(?P<n>\d+|dva|tri)\s*sat(?:a|i)?\b",
+        lowered,
+        re.I,
+    )
+    if not m_razmak:
+        m_razmak = re.search(r"\brazmak(?:u)?\s+od\s+(?P<n>\d+|dva|tri)\s*sat(?:a|i)?\b", lowered, re.I)
+    if m_razmak:
+        n_raw = m_razmak.group("n").strip().lower()
+        if n_raw == "dva":
+            min_hours_between = 2.0
+        elif n_raw == "tri":
+            min_hours_between = 3.0
+        else:
+            try:
+                min_hours_between = float(n_raw)
+            except Exception:
+                pass
+
+    # "round 24", "in 24 round", "24 round"
+    round_num: Optional[int] = None
+    m_round = re.search(r"\b(?:in\s+)?(?P<n>\d+)\s+round\b", lowered, re.I)
+    if not m_round:
+        m_round = re.search(r"\bround\s+(?P<n>\d+)\b", lowered, re.I)
+    if m_round:
+        try:
+            round_num = int(m_round.group("n"))
+        except Exception:
+            pass
+
     limit = 50
     m_limit = re.search(r"\blimit\b\s+(?P<n>\d+)\b", raw, re.I)
     if m_limit:
@@ -300,6 +373,29 @@ def parse(text: str) -> QuerySpec:
             limit = max(1, min(500, int(m_limit.group("n"))))
         except Exception:
             pass
+
+    # Serbian: "tiket od 10 parova", "8 parova", "Max 5 parova", "kvotu 8 parova"
+    if limit == 50:
+        m_tiket = re.search(r"\btiket\s+od\s+(?P<n>\d+)\s+parova\b", lowered, re.I)
+        if m_tiket:
+            try:
+                limit = max(1, min(500, int(m_tiket.group("n"))))
+            except Exception:
+                pass
+    if limit == 50:
+        m_parova = re.search(r"\b(?P<n>\d+)\s+parova\b", lowered, re.I)
+        if m_parova:
+            try:
+                limit = max(1, min(500, int(m_parova.group("n"))))
+            except Exception:
+                pass
+    if re.search(r"\bmax\s+\d+\s+parov[a]?\b", lowered, re.I):
+        m_max_parova = re.search(r"\bmax\s+(?P<n>\d+)\s+parov[a]?\b", lowered, re.I)
+        if m_max_parova:
+            try:
+                limit = max(1, min(500, int(m_max_parova.group("n"))))
+            except Exception:
+                pass
 
     # "Give me 3 matches/events/games ..." (no explicit "limit")
     if limit == 50:
@@ -360,7 +456,7 @@ def parse(text: str) -> QuerySpec:
                 pass
 
     distinct_matches = bool(
-        re.search(r"\b(matches?|matchs?|games?|utakmic\w*|me[cč]ev\w*|partij\w*|мач\w*|срещ\w*)\b", raw, re.I)
+        re.search(r"\b(matches?|matchs?|games?|utakmic\w*|me[cč]ev\w*|partij\w*|parova?|parovi|мач\w*|срещ\w*)\b", raw, re.I)
     )
 
     # Numeric comparisons on value (odds): "lower than 1.6", "greater than 2.0", etc.
@@ -369,9 +465,13 @@ def parse(text: str) -> QuerySpec:
     total_product_min_inclusive = True
     total_product_max_inclusive = True
 
-    # English: "total value between 5 and 9"
+    # Normalize common typos so patterns match
+    lowered = re.sub(r"\bbetwen\b", "between", lowered, flags=re.I)
+    lowered = re.sub(r"\bengleand\b", "england", lowered, flags=re.I)
+
+    # English: "total value between 5 and 9" or "total odd(s) between 3 and 6" or "total odd between 3-6"
     m_total_between = re.search(
-        r"\btotal\s+(?:value|product)\b.*?\bbetween\b\s+(?P<a>\d+(?:\.\d+)?)\s+\band\b\s+(?P<b>\d+(?:\.\d+)?)\b",
+        r"\btotal\s+(?:value|product|odd[s]?)\b.*?\bbetween\b\s+(?P<a>\d+(?:\.\d+)?)\s*(?:\band\b|-)\s*(?P<b>\d+(?:\.\d+)?)\b",
         lowered,
         re.I,
     )
@@ -478,11 +578,44 @@ def parse(text: str) -> QuerySpec:
         except Exception:
             pass
 
-    # Serbian quotas: "2 iz bugarske i dva iz rumunije"
+    # Serbian: "sa kvotama između 1.5-1.8", "kvotama od 1.3-1.5"
+    m_sr_kvotama = re.search(
+        r"\b(?:sa\s+)?kvotama\s+(?:između|izmedju|od)\s+(?P<a>\d+(?:\.\d+)?)\s*(?:i|-)\s*(?P<b>\d+(?:\.\d+)?)\b",
+        lowered,
+        re.I,
+    )
+    if m_sr_kvotama and value_min is None and value_max is None:
+        try:
+            value_min = float(m_sr_kvotama.group("a"))
+            value_max = float(m_sr_kvotama.group("b"))
+            value_min_inclusive = True
+            value_max_inclusive = True
+        except Exception:
+            pass
+
+    # Serbian: "kv 10", "kvotu 10", "kvotu 8 parova" => total product with ±20% tolerance
+    m_sr_kv = re.search(r"\bkv(otu)?\s+(?P<n>\d+(?:\.\d+)?)(?:\s+parova?)?\s*$", lowered, re.I)
+    if not m_sr_kv:
+        m_sr_kv = re.search(r"\bkvotu\s+(?P<n>\d+(?:\.\d+)?)\s+(?:parova?|parovi)\b", lowered, re.I)
+    if m_sr_kv and total_product_max is None:
+        try:
+            n_val = float(m_sr_kv.group("n"))
+            total_product_min = round(n_val * 0.8, 2)
+            total_product_max = round(n_val * 1.2, 2)
+            total_product_min_inclusive = True
+            total_product_max_inclusive = True
+            distinct_matches = True
+        except Exception:
+            pass
+
+    # Serbian quotas: "2 iz bugarske i dva iz rumunije" (exclude sport names: "3 iz fudbala" -> sport_limits, not country)
+    _SR_SPORT_RAW = {"fudbala", "fudbal", "kosarke", "kosarka", "rukometa", "rukomet"}
     country_limits: Optional[Dict[str, int]] = None
     for m in re.finditer(r"\b(?P<n>\d+|[a-zčćšđž]+)\b\s+iz\s+(?P<c>[a-zčćšđž]+)\b", lowered, re.I):
         n_raw = m.group("n").strip().lower()
         c_raw = m.group("c").strip().lower()
+        if c_raw in _SR_SPORT_RAW:
+            continue  # "3 iz fudbala" / "tri iz kosarke" -> handled by sport_limits
         try:
             n = int(n_raw)
         except Exception:
@@ -525,7 +658,74 @@ def parse(text: str) -> QuerySpec:
             country_limits = {}
         country_limits[c] = country_limits.get(c, 0) + n
 
+    # Serbian: "3 utakmice iz fudbala i tri iz kosarke" -> sport_limits
+    sport_limits: Optional[Dict[str, int]] = None
+    _SR_SPORT = {"fudbala": "football", "fudbal": "football", "kosarke": "basketball", "kosarka": "basketball", "rukometa": "handball", "rukomet": "handball"}
+    for m in re.finditer(r"\b(?P<n>\d+|[a-zčćšđž]+)\s+(?:utakmic[ae]?|me[cč]ev?[a]?)\s+iz\s+(?P<sport>[a-zčćšđž]+)\b", lowered, re.I):
+        n_raw = m.group("n").strip().lower()
+        s_raw = (m.group("sport") or "").strip().lower()
+        try:
+            n = int(n_raw)
+        except Exception:
+            n = _SR_NUM_WORDS.get(n_raw, 0)
+        sport_key = _SR_SPORT.get(s_raw, s_raw)
+        if sport_key not in ("football", "basketball", "handball"):
+            continue
+        if n <= 0:
+            continue
+        if sport_limits is None:
+            sport_limits = {}
+        sport_limits[sport_key] = sport_limits.get(sport_key, 0) + n
+    for m in re.finditer(r"\b(?:i|,)\s*(?P<n>\d+|[a-zčćšđž]+)\s+iz\s+(?P<sport>fudbala|kosarke|rukometa|fudbal|kosarka|rukomet)\b", lowered, re.I):
+        n_raw = m.group("n").strip().lower()
+        s_raw = (m.group("sport") or "").strip().lower()
+        try:
+            n = int(n_raw)
+        except Exception:
+            n = _SR_NUM_WORDS.get(n_raw, 0)
+        sport_key = _SR_SPORT.get(s_raw, s_raw)
+        if sport_key not in ("football", "basketball", "handball"):
+            continue
+        if n <= 0:
+            continue
+        if sport_limits is None:
+            sport_limits = {}
+        sport_limits[sport_key] = sport_limits.get(sport_key, 0) + n
+    if sport_limits:
+        distinct_matches = True
+        quota_total = sum(sport_limits.values())
+        if quota_total > 0:
+            limit = max(limit, quota_total)
+
+    # "sa ukupnom kvotom 11" / "ukupnom kvotom 11" (±20% tolerance)
+    m_ukupna = re.search(r"\b(?:sa\s+)?ukupnom\s+kvotom\s+(?P<n>\d+(?:\.\d+)?)\b", lowered, re.I)
+    if m_ukupna and total_product_max is None:
+        try:
+            n_val = float(m_ukupna.group("n"))
+            total_product_min = round(n_val * 0.8, 2)
+            total_product_max = round(n_val * 1.2, 2)
+            total_product_min_inclusive = True
+            total_product_max_inclusive = True
+            distinct_matches = True
+        except Exception:
+            pass
+    # "pojedinacnom kovtom ne vecom od 3" / "pojedinacnom kvotom ne većom od 3"
+    m_pojedinacna = re.search(r"\bpojedinacnom\s+(?:kovtom|kvotom)\s+ne\s+ve[cć]om\s+od\s+(?P<n>\d+(?:\.\d+)?)\b", lowered, re.I)
+    if m_pojedinacna and value_max is None:
+        try:
+            value_max = float(m_pojedinacna.group("n"))
+            value_max_inclusive = True
+        except Exception:
+            pass
+
     if country_limits:
+        # Normalize country keys so "engleand" matches DB "england"
+        _COUNTRY_NORMALIZE: dict[str, str] = {"engleand": "england"}
+        normalized_limits: dict[str, int] = {}
+        for c, n in country_limits.items():
+            key = _COUNTRY_NORMALIZE.get(c.strip().lower(), c.strip().lower())
+            normalized_limits[key] = normalized_limits.get(key, 0) + n
+        country_limits = normalized_limits
         group_names = list(country_limits.keys())
         distinct_matches = True
         # If the prompt gives per-country quotas, interpret total rows as their sum.
@@ -564,6 +764,37 @@ def parse(text: str) -> QuerySpec:
             value_max = None
             value_max_inclusive = True
 
+    # "Manceter City, Bajern Minken I Barselona dobijaju" -> include_teams + type_ = won
+    include_teams: Optional[List[str]] = None
+    _TEAM_NORMALIZE: Dict[str, str] = {
+        "manceter city": "Manchester City",
+        "bajern minken": "Bayern Munich",
+        "bajern minhen": "Bayern Munich",
+        "barselona": "Barcelona",
+        "barsa": "Barcelona",
+        "real madrid": "Real Madrid",
+        "manchester united": "Manchester United",
+        "liverpul": "Liverpool",
+        "liverpool": "Liverpool",
+    }
+    m_dobijaju = re.search(r"^(.+?)\s+dobijaju\s*$", raw.strip(), re.I | re.S)
+    if m_dobijaju:
+        segment = m_dobijaju.group(1).strip()
+        # Split by comma and " i " / " I "
+        parts = re.split(r"\s+[iI]\s+|\s*,\s*", segment)
+        teams = []
+        for p in parts:
+            t = p.strip()
+            if not t:
+                continue
+            key = t.lower()
+            teams.append(_TEAM_NORMALIZE.get(key, t))
+        if teams:
+            include_teams = teams
+            type_ = "won"
+            distinct_matches = True
+            limit = max(limit, len(teams))
+
     # Fallback: if text is a single word and no other filters, treat it as event name.
     if not any([event_name, group_name, type_, start_time_from, start_time_to]) and re.fullmatch(r"[\w\-]+", raw):
         event_name = raw
@@ -590,6 +821,10 @@ def parse(text: str) -> QuerySpec:
         include_type_=include_type_,
         limit=limit,
         distinct_matches=distinct_matches,
+        min_hours_between=min_hours_between,
+        round_num=round_num,
+        sport_limits=sport_limits,
+        include_teams=include_teams,
         intent=intent,
     )
 
